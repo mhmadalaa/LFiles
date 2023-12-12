@@ -1,99 +1,87 @@
-const express = require("express");
-const app = express();
-const mongoose = require("mongoose");
-const multer = require("multer");
-const { GridFsStorage } = require("multer-gridfs-storage");
+require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
 const path = require('path');
-const crypto = require('crypto');
+const multer = require('multer');
+// const crypto = require('crypto');
+const morgan = require('morgan');
+const { GridFSBucket } = require('mongodb');
+const { ObjectId } = require('bson');
 
+// npm install multer@1.4.4-lts.1
 
+const app = express();
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
+app.use(morgan('dev'));
+
 app.use(express.json());
-app.use(express.urlencoded({
-    extended: false
-}));
+app.use(
+  express.urlencoded({
+    extended: false,
+  }),
+);
 
+const url = process.env.DATABASE;
 
-const url = 'put your url';
+// mongoose.set('strictQuery', true);
 
-try {
-    mongoose.connect(url);
-} catch (error) {
-    handleError(error);
-}
+mongoose
+  .connect(url)
+  .then((con) => {
+    console.log('DB connecting successful...');
+  })
+  .catch((err) => {
+    console.log('DB connection ERROR!!');
+  });
 
-mongoose.set('strictQuery', true);
-process.on('unhandledRejection', error => {
-    console.log('unhandledRejection', error.message);
+const db = mongoose.connection;
+
+process.on('unhandledRejection', (error) => {
+  console.log('unhandledRejection', error.message);
 });
 
-let bucket;
-mongoose.connection.on("connected", () => {
-    const client = mongoose.connections[0].client;
-    const db = mongoose.connections[0].db;
-    bucket = new mongoose.mongo.GridFSBucket(db, {
-        bucketName: "uploads"
-    });
-    /* console.log(bucket); */
-});
+const bucket = new GridFSBucket(db);
 
-
-
-
-const storage = new GridFsStorage({
-    url,
-    file: (req, file) => {
-        return new Promise((resolve, reject) => {
-            crypto.randomBytes(16, (err, buf) => {
-                if (err) {
-                    return reject(err);
-                }
-                const filename = buf.toString('hex') + path.extname(file.originalname);
-                const fileInfo = {
-                    filename: filename,
-                    bucketName: 'uploads'
-                };
-                resolve(fileInfo);
-            });
-        });
-    }
-});
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
+app.post('/upload', upload.single('file'), (req, res) => {
+  const fileBuffer = req.file.buffer; // Access the file buffer
+  const filename = req.file.originalname;
+
+  const uploadStream = bucket.openUploadStream(filename);
+  const id = uploadStream.id;
+
+  uploadStream.end(fileBuffer); // Write the file buffer to the stream
+
+  uploadStream.on('finish', () => {
+    res.json({ id: id, filename: filename });
+  });
+
+  uploadStream.on('error', (error) => {
+    res.status(500).json({ error: 'Error uploading file to GridFS' });
+  });
+});
+
+app.get('/fileinfo/:fileId', (req, res) => {
+  const fileId = new ObjectId(req.params.fileId);
+
+  const downloadStream = bucket.openDownloadStream(fileId);
+
+  // Set appropriate headers
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'inline; filename=example.pdf');
+
+  // Pipe the file stream to the response
+  downloadStream.pipe(res);
+});
+
 app.get('/', (req, res) => {
-    res.render('overview');
-});
-
-app.get("/fileinfo/:filename", (req, res) => {
-    const file = bucket
-        .find({
-            filename: req.params.filename
-        })
-        .toArray((err, files) => {
-            if (!files || files.length === 0) {
-                return res.status(404)
-                    .json({
-                        err: "no files exist"
-                    });
-            }
-            bucket.openDownloadStreamByName(req.params.filename)
-                .pipe(res);
-        });
-});
-
-app.post("/upload", upload.single("file"), (req, res) => {
-    try {
-        res.status(200).json({
-            file: req.file
-        })
-    }
-    catch (err) {
-        console.log(err);
-    }
+  res.render('overview');
 });
 
 app.listen(4000, () => {
-    console.log('Server is running on port 4000');
-})
+  console.log('Server is running on port 4000');
+});
