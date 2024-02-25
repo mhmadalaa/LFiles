@@ -1,17 +1,18 @@
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
+const path = require('path');
 const multer = require('multer');
+// const crypto = require('crypto');
 const morgan = require('morgan');
 const { GridFSBucket } = require('mongodb');
 const { ObjectId } = require('bson');
-// const path = require('path');
-// const crypto = require('crypto');
 
+// npm install multer@1.4.4-lts.1
 
 const app = express();
-// app.set('view engine', 'ejs');
-// app.set('views', path.join(__dirname, 'views'));
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
 
 app.use(morgan('dev'));
 
